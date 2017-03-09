@@ -1,0 +1,97 @@
+#! /usr/bin/perl
+use Net::WebSocket::Server;
+$filename = 'numbers.csv';
+
+my @dataMatrix;
+open my $fh, '<:encoding(UTF-8)', $filename or die "Could not open '$filename': $!";
+my $y = 0;
+
+while (my $line = <$fh>) {
+    chomp $line;
+    my @cells = split /,/, $line;
+    for (my $x = 0; $x < scalar @cells; $x++) {
+        $dataMatrix[$y][$x] = $cells[$x];
+    }
+    $y++;
+}
+ensure_size();
+my $lastSave = time;
+
+$sock = Net::WebSocket::Server->new(
+    listen => 8080,
+    on_connect => sub {
+        my ($serv, $conn) = @_;
+        $conn->on(
+            ready => sub {
+                for my $ar (@dataMatrix) {
+                    $conn->send_utf8(join(',', @$ar));
+                }
+            },
+            utf8 => sub {
+                my ($conn, $msg) = @_;
+
+                if (index($msg, ':__:') != -1) {
+
+                    my @splitmsg = split(/:__:/, $msg);
+                    my (undef, $row, $col) = split(/\D+/, $splitmsg[0]);
+
+                    $dataMatrix[$row][$col] = $splitmsg[1];
+
+                    $_->send_utf8($msg) for $conn->server->connections;
+                    write_numbers();
+
+                } else {
+                    my @ar = split(/,/, $msg);
+                    my $matSize = scalar @dataMatrix;
+                    for (my $i = 0; $i < scalar @ar; $i++) {
+                        $dataMatrix[$matSize][$i] = $ar[$i];
+                    }
+                    ensure_size();
+                    write_numbers();
+                    $_->send_utf8(join(',', @{$dataMatrix[$matSize]})) for $conn->server->connections;
+                    
+                    for (my $i = 0; $i < scalar @dataMatrix; $i++) {
+                        for (my $j = 0; $j < scalar @{$dataMatrix[$i]}; $j++) {
+                            if (length $dataMatrix[$i][$j] < 1) {
+                                $_->send_utf8("tr".$i."d".$j.":__:") for $conn->server->connections;
+                            }
+                        }
+                    }                        
+                }
+            },
+            disconnect => sub {
+                write_numbers("NOW");
+            }
+        );
+    },
+);
+
+sub ensure_size{
+    my $longest = 0;
+    for my $ar (@dataMatrix) {
+        if (scalar @$ar > $longest) {$longest = scalar @$ar;}
+    }
+    print "$longest\n";
+
+    for (my $i = 0; $i < scalar @dataMatrix; $i++) {
+       if (scalar @{$dataMatrix[$i]} < $longest) {
+            for (my $j = scalar @{$dataMatrix[$i]}; $j < $longest; $j++) {
+                $dataMatrix[$i][$j] = '';
+            }
+        }
+    }
+}
+
+sub write_numbers{
+    if ((time - $lastSave > 30) || (@_)) {
+        open my $fh, ">:encoding(UTF-8)", $filename or die "Could not overwrite $filename: $!";
+
+        foreach $arr (@dataMatrix) {
+            print $fh join(',',@{$arr})."\n";
+        }
+        close $fh;
+    }
+}
+
+
+$sock->start;

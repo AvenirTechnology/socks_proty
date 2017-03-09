@@ -1,0 +1,15 @@
+#! /usr/bin/perl
+use Net::WebSocket::Server;
+
+Net::WebSocket::Server->new(
+    listen => 8080,
+    on_connect => sub {
+        my ($serv, $conn) = @_; # Equals, not minus. That causes problems, Mark.
+        $conn->on(
+            utf8 => sub {
+                my ($conn, $msg) = @_;
+                $_->send_utf8($conn->ip() . ":" . $conn->port() . " " . $msg) for $conn->server->connections;
+            },
+        );
+    },
+)->start;
