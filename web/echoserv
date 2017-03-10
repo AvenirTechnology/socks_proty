@@ -37,10 +37,10 @@ Net::WebSocket::Server->new(
                         or die "Could not open '$filename' $!";
 
                         while (my $row = <$fh>) {
-                                   chomp $row;
-                           $conn->send_utf8($row);
+                            chomp $row;
+                            $conn->send_utf8($row);
                         }
-                        #update current_mtime
+                        #update current_mtime for next change 
                         $current_mtime = $updated_mtime;
                    }
                 }                
