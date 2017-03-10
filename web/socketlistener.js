@@ -16,7 +16,7 @@ ws.onmessage = function(event) {
         var newHTML = document.createElement('p');
         newHTML.innerHTML = event.data;
         document.body.appendChild(newHTML);
-        //console.log("creating new line");
+        console.log("creating new line");
     }
 };
 
@@ -39,5 +39,5 @@ function clearPrevious() {
     while (elements[0]) {
         elements[0].parentNode.removeChild(elements[0]);
     }
-   //console.log("clearing");
+    console.log("clearing");
 }
