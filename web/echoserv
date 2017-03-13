@@ -3,12 +3,12 @@
 use Net::WebSocket::Server;
 use threads;
 
-#file to send through websocket
 my $filename :shared = 'testfile.txt';
 
-my ($conn, $serv);  #initialised out here to access for thread
+my ($conn, $serv);    #initialised out here to access for thread
 
-#start new websocket connection
+
+#start new websocket
 my $socket = Net::WebSocket::Server->new(
     listen => 8080,
     on_connect => sub {
@@ -21,7 +21,7 @@ my $socket = Net::WebSocket::Server->new(
                 #start file monitoring thread
                 my $thr = threads->create('monitorFileThread');
 
-                #send file 
+                #initial sending of file on loading of browser page
                 open(my $fh, '<:encoding(UTF-8)', $filename)
                 or die "Could not open '$filename' $!";
 
@@ -30,7 +30,10 @@ my $socket = Net::WebSocket::Server->new(
                     $conn->send_utf8($row);
                 }
             },
-                
+            
+
+            #save input from text field in browser to file. This will automatically update 
+            #any other clients as well, as the file save will trigger sending changes to them
             utf8 => sub {
                 my ($conn, $msg) = @_;
                 open my $fh, ">>:encoding(UTF-8)", $filename or die "Could not open $filename: $!";
@@ -48,33 +51,29 @@ my $socket = Net::WebSocket::Server->new(
 );
 
 
+
+#thread for monitoring file - has to be separate otherwise script can't do anything else once in while loop
 sub monitorFileThread {
     
-    my $counter = 0;
-
-    print "$counter/n";
-
+    #get current modified time of file
     my $current_mtime = (stat $filename)[9];
 
+    #continuously check mtime and compare to current. once it detect a change will send message "clearPrevious"
+    #to run javascript code to clear the previous content in page and then resend the file contents through
     while (1) {
-        
         my $updated_mtime = (stat $filename)[9];
-
         if ($updated_mtime > $current_mtime) {
 
-            $conn->send_utf8("clearPrevious"); #for $conn->server->connections;
-
+            $conn->send_utf8("clearPrevious");
             open(my $fh, '<:encoding(UTF-8)', $filename) or die "Could not open '$filename' $!";
-
             while (my $row = <$fh>) {
                 chomp $row;
                 $conn->send_utf8($row);# for $conn->server->connections;
             }
-
+            #update current_mtime to latest mtime
             $current_mtime = $updated_mtime;
         }
     }
-    $counter++;
 }
 
 $socket->start();
