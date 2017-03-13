@@ -1,77 +1,135 @@
 #! /usr/bin/perl
+use strict;
+use threads;
+use threads::shared;
+use Time::HiRes qw( usleep );
 use Net::WebSocket::Server;
-$filename = 'numbers.csv';
 
-my @dataMatrix;
+my $filename :shared = 'numbers.csv'; #A server-side CSV file to build a cell-table from.
+
+
+my @dataMatrix; #Declaring the variable in which to store the 2D array of file cell data.
+
+#Open the file in read mode.
 open my $fh, '<:encoding(UTF-8)', $filename or die "Could not open '$filename': $!";
-my $y = 0;
+my $y = 0; #Line tracker for populating array.
 
-while (my $line = <$fh>) {
-    chomp $line;
-    my @cells = split /,/, $line;
+while (my $line = <$fh>) { #While there are lines left
+    chomp $line; #Remove the endline character from the end.
+    my @cells = split /,/, $line; #Split the line on commas into each cell's value.
     for (my $x = 0; $x < scalar @cells; $x++) {
-        $dataMatrix[$y][$x] = $cells[$x];
+        $dataMatrix[$y][$x] = $cells[$x]; #Store the value of that cell in the 2D array.
     }
     $y++;
 }
-ensure_size();
-my $lastSave = time;
+ensure_size(); #"Squares off" the data, puts in empty cells so that all lines are the same max length.
+close $fh; #Closing the file prevents a SegFault in the threaded methods later on.
 
-$sock = Net::WebSocket::Server->new(
-    listen => 8080,
+my $lastSave = time; #Store the current time as the last time the file was saved from here.
+#Not strictly true as we haven't written anything yet, but it's a baseline for a save time limit.
+
+my ($serv, $conn); #Initialised out here so that we can access them for the threaded method.
+
+my $sock = Net::WebSocket::Server->new( #Use the Net::WebSocket Module, and declare a socket.
+    listen => 8080, #Port to listen on, 8080 for testing purposes.
     on_connect => sub {
-        my ($serv, $conn) = @_;
+        ($serv, $conn) = @_;
+        my $thr; #Declare a variable for a thread. Done here so I can close it later.
+
         $conn->on(
-            ready => sub {
-                for my $ar (@dataMatrix) {
-                    $conn->send_utf8(join(',', @$ar));
-                }
+            ready => sub { #When the client has connected and is ready to send/recieve.
+                $thr = threads->create('do_thread'); #Create the file monitor thread.
+                for my $ar (@dataMatrix) { #For every "line" in the array... (every x stored at y)
+                    $conn->send_utf8(join(',', @$ar)); #Send the values combined as a CSV style line.
+                } #Gets split again on the other side.
             },
-            utf8 => sub {
+            utf8 => sub { #when client sends an in-format string.
                 my ($conn, $msg) = @_;
 
-                if (index($msg, ':__:') != -1) {
+                if (index($msg, ':__:') != -1) { #if the string contains a specific divider sequence
 
-                    my @splitmsg = split(/:__:/, $msg);
-                    my (undef, $row, $col) = split(/\D+/, $splitmsg[0]);
+                    my @splitmsg = split(/:__:/, $msg); # tr4d10:__:SomeValue
+                    my (undef, $row, $col) = split(/\D+/, $splitmsg[0]); #Splits tr4d10 into an empty value, 4, and 10.
 
-                    $dataMatrix[$row][$col] = $splitmsg[1];
+                    $dataMatrix[$row][$col] = $splitmsg[1]; #Store the value in the approprite 2D array position.
 
-                    $_->send_utf8($msg) for $conn->server->connections;
-                    write_numbers();
+                    $_->send_utf8($msg) for $conn->server->connections; #Send the message back to the client for processing.
+                    write_numbers(); #Re-write to file if appropriate.
 
-                } else {
-                    my @ar = split(/,/, $msg);
-                    my $matSize = scalar @dataMatrix;
+
+                } else { #if there was no divider, we'll append the line.
+                    my @ar = split(/,/, $msg); # Yes,No,Sometimes
+                    my $matSize = scalar @dataMatrix; #Store the length of the array at present, or it changes and we point elsewhere.
                     for (my $i = 0; $i < scalar @ar; $i++) {
-                        $dataMatrix[$matSize][$i] = $ar[$i];
+                        $dataMatrix[$matSize][$i] = $ar[$i]; #For each value in the passed string ("Yes", "No", "Sometimes") allocate to a cell on the last line.
                     }
-                    ensure_size();
-                    write_numbers();
-                    $_->send_utf8(join(',', @{$dataMatrix[$matSize]})) for $conn->server->connections;
+                    ensure_size(); #Make sure all the lines including this latest are equal length.
+                    write_numbers(); #Re-write to file if appropriate.
+                    $_->send_utf8(join(',', @{$dataMatrix[$matSize]})) for $conn->server->connections; #Send the latest updated line to the clients.
                     
                     for (my $i = 0; $i < scalar @dataMatrix; $i++) {
                         for (my $j = 0; $j < scalar @{$dataMatrix[$i]}; $j++) {
                             if (length $dataMatrix[$i][$j] < 1) {
-                                $_->send_utf8("tr".$i."d".$j.":__:") for $conn->server->connections;
+                                $_->send_utf8("tr".$i."d".$j.":__:") for $conn->server->connections; #Send through every blank cell, to fill in earlier spots.
                             }
                         }
                     }                        
                 }
             },
-            disconnect => sub {
-                write_numbers("NOW");
+            disconnect => sub { #When a client disconnects.
+                write_numbers("NOW"); #Force the file to save.
+                $thr->kill('KILL')->detach; #Kill the file listener thread for that client.
             }
         );
-    },
+    }
 );
+
+
+sub do_thread {
+
+    my $current_mtime = (stat $filename)[9];
+    #my $count = 0;
+    while (1) {
+        my $updated_mtime = (stat $filename)[9];
+        #$_->send_utf8("tr0d0:__:Test") for $serv->connections;
+        #print $count . "//" . $current_mtime . " :: " . $updated_mtime . "\n";
+        if ($updated_mtime > $current_mtime) {
+
+            #$_->send_utf8("tr0d0:__:Test") for $serv->connections;
+            
+            open(my $fh, '<:encoding(UTF-8)', $filename)
+                or die "Could not open $filename: $!";
+            
+            my $y = 0;
+            
+            while (my $line = <$fh>) {
+                chomp $line;
+                my @cells = split /,/, $line;
+                for (my $x = 0; $x < scalar @cells; $x++) {
+                    $dataMatrix[$y][$x] = $cells[$x];
+                }
+                $y++;
+            }
+
+
+            for (my $i = 0; $i < scalar @dataMatrix; $i++) {
+                for (my $j = 0; $j < scalar @{$dataMatrix[$i]}; $j++) {
+                    $conn->send_utf8("tr".$i."d".$j.":__:".$dataMatrix[$i][$j]);
+                }
+            }                        
+            $current_mtime = $updated_mtime;
+        }
+        #$count++;
+        usleep(500000);
+    }
+}
 
 sub ensure_size{
     my $longest = 0;
     for my $ar (@dataMatrix) {
         if (scalar @$ar > $longest) {$longest = scalar @$ar;}
     }
-    print "$longest\n";
+    #print "$longest\n";
 
     for (my $i = 0; $i < scalar @dataMatrix; $i++) {
        if (scalar @{$dataMatrix[$i]} < $longest) {
@@ -86,7 +144,7 @@ sub write_numbers{
     if ((time - $lastSave > 30) || (@_)) {
         open my $fh, ">:encoding(UTF-8)", $filename or die "Could not overwrite $filename: $!";
 
-        foreach $arr (@dataMatrix) {
+        foreach my $arr (@dataMatrix) {
             print $fh join(',',@{$arr})."\n";
         }
         close $fh;
