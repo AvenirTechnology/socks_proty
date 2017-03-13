@@ -18,7 +18,7 @@ class LuckyController {
         $process->start();
 
         return new Response(
-            '<html><body><input id = "textbox" type = "textfield"/><script type = "text/javascript" src = "socketlistener.js"></script></body></html>'
+            '<html><body><div id = "text"></div><input id = "textbox" type = "textfield"/><script type = "text/javascript" src = "socketlistener.js"></script></body></html>'
         );
     }
 }

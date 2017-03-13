@@ -1,19 +1,27 @@
 #! /usr/bin/perl
 #above line tells it where to find perl in order to be able to run
 use Net::WebSocket::Server;
+use threads;
 
 #file to send through websocket
-my $filename = 'testfile.txt';
+my $filename :shared = 'testfile.txt';
+
+my ($conn, $serv);  #initialised out here to access for thread
 
 #start new websocket connection
-Net::WebSocket::Server->new(
+my $socket = Net::WebSocket::Server->new(
     listen => 8080,
     on_connect => sub {
-        my ($serv, $conn) = @_;
+        ($serv, $conn) = @_;
+        
         $conn->on(
-            
-            #read and send testfile.txt
+        
             ready => sub {
+                
+                #start file monitoring thread
+                my $thr = threads->create('monitorFileThread');
+
+                #send file 
                 open(my $fh, '<:encoding(UTF-8)', $filename)
                 or die "Could not open '$filename' $!";
 
@@ -21,36 +29,52 @@ Net::WebSocket::Server->new(
                     chomp $row;
                     $conn->send_utf8($row);
                 }
+            },
                 
-                #check if test file has changed by comparing mtime and if so resend it
-                my ($conn, $msg) = @_;
-                my $current_mtime = (stat $filename)[9];
-                
-                while (1) {
-                    my $updated_mtime = (stat $filename)[9];
-                    if ($updated_mtime > $current_mtime) {
-                        
-                        #send message to first clear previous file from browser
-                        $conn->send_utf8("clearPrevious") for $conn->server->connections;
-                        
-                        open(my $fh, '<:encoding(UTF-8)', $filename)
-                        or die "Could not open '$filename' $!";
-
-                        while (my $row = <$fh>) {
-                            chomp $row;
-                            $conn->send_utf8($row);
-                        }
-                        #update current_mtime for next change 
-                        $current_mtime = $updated_mtime;
-                   }
-                }                
-             },               
-
-            #send text from text field to all connections (not working currently)
             utf8 => sub {
                 my ($conn, $msg) = @_;
-                $_->send_utf8($conn->ip() . " : " . $conn->port() . " " . $msg) for $conn->server->connections;
-             },
+                open my $fh, ">>:encoding(UTF-8)", $filename or die "Could not open $filename: $!";
+                print $fh $msg . "\r\n";
+                close $fh;
+            }
+
+            #send text from text field to all connections (pseudo chat room)
+            #utf8 => sub {
+            #    my ($conn, $msg) = @_;
+            #   #$_->send_utf8($conn->ip() . " : " . $conn->port() . " " . $msg) for $conn->server->connections;
+            #},
         );
     },
-)->start;
+);
+
+
+sub monitorFileThread {
+    
+    my $counter = 0;
+
+    print "$counter/n";
+
+    my $current_mtime = (stat $filename)[9];
+
+    while (1) {
+        
+        my $updated_mtime = (stat $filename)[9];
+
+        if ($updated_mtime > $current_mtime) {
+
+            $conn->send_utf8("clearPrevious"); #for $conn->server->connections;
+
+            open(my $fh, '<:encoding(UTF-8)', $filename) or die "Could not open '$filename' $!";
+
+            while (my $row = <$fh>) {
+                chomp $row;
+                $conn->send_utf8($row);# for $conn->server->connections;
+            }
+
+            $current_mtime = $updated_mtime;
+        }
+    }
+    $counter++;
+}
+
+$socket->start();

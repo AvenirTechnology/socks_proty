@@ -15,7 +15,7 @@ ws.onmessage = function(event) {
         //insert new p elements using event.data to write lines from file
         var newHTML = document.createElement('p');
         newHTML.innerHTML = event.data;
-        document.body.appendChild(newHTML);
+        document.getElementById("text").appendChild(newHTML);
         console.log("creating new line");
     }
 };
