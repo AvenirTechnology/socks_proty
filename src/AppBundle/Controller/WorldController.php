@@ -20,26 +20,6 @@ class WorldController
         return new Response(
             '<html><body><h1>Test time...</h1>
 <div id="datatable"></div>
-<style>
-
-div { 
-    padding: 4px;
-}
-
-#datatable {
-
-}
-
-#datatable > div {
-
-}
-
-#datatable div > div {
-    display: inline;
-    width: 60px;
-}
-
-</style>
 <input id="echobox" type="textfield"/>
 <script type="text/javascript" src="SocketListen.js"></script>
 </body></html>'

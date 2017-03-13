@@ -19,6 +19,8 @@ ws.onmessage = function(event) {
             var prevNode = document.getElementById("tr"+row+"d"+parseInt(col-1));
 
             prevNode.parentNode.insertBefore(makeCell(cell[0],cell[1]), prevNode.nextSibling);
+            prevNode.parentNode.style.columnCount = prevNode.parentNode.childNodes.length;
+            prevNode.parentNode.style.columnGap = "0px";
 
         }
     } else {
@@ -31,6 +33,8 @@ ws.onmessage = function(event) {
             newRow.appendChild(makeCell(newId, arrStr[i].trim()));
         }
         incr++;
+        newRow.style.columnCount = newRow.childNodes.length;
+        newRow.style.columnGap = "0px";
         document.getElementById("datatable").appendChild (newRow);
     }
 };
